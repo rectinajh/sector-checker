@@ -1,4 +1,1 @@
-while IFS= read -r line
-do
-./lotus-miner sectors status --log $line | sed -n '1p;4p' | cut -d ':' -f2 | tr -s "\t"
-done < "./sector-id.txt"
+ll | awk '{print $9}' | awk -F '-' '{print $3}' |xargs -i lotus-miner sectors status {} | grep CIDcommR -B3 | grep -v "Status|CIDcommD|--" | awk '{print $2}' | tee xxx.txt

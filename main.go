@@ -2,14 +2,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	
 	"fmt"
-	"io/ioutil"
-	"math/big"
+	
+
 	"math/rand"
 	"os"
 //	"path/filepath"
-	"time"
+	
 	"bufio"
 	"github.com/ipfs/go-cid"
 	"strconv"
@@ -30,12 +30,12 @@ import (
 	"github.com/filecoin-project/lotus/extern/sector-storage/ffiwrapper"
 	"github.com/filecoin-project/lotus/extern/sector-storage/ffiwrapper/basicfs"
 //	"github.com/filecoin-project/lotus/extern/sector-storage/stores"
-	"github.com/filecoin-project/specs-actors/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 //	"github.com/filecoin-project/specs-storage/storage"
 
 //	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/build"
-	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var log = logging.Logger("lotus-bench")
@@ -52,14 +52,15 @@ func main() {
 
 	log.Info("Starting lotus-bench")
 
-	miner.SupportedProofTypes[abi.RegisteredSealProof_StackedDrg2KiBV1] = struct{}{}
+	// miner.SupportedProofTypes[abi.RegisteredSealProof_StackedDrg2KiBV1] = struct{}{}
+
+	policy.AddSupportedProofTypes(abi.RegisteredSealProof_StackedDrg2KiBV1)
 
 	app := &cli.App{
-		Name:    "sector-sanity-check",
+		Name:    "sector-check",
 		Usage:   "check window post",
 		Version: build.UserVersion(),
 		Commands: []*cli.Command{
-			proveCmd,
 			sealBenchCmd,
 			importBenchCmd,
 		},
@@ -155,14 +156,13 @@ var sealBenchCmd = &cli.Command{
 		}
 		sectorSize := abi.SectorSize(sectorSizeInt)
 
-		spt, err := ffiwrapper.SealProofTypeFromSectorSize(sectorSize)
-		if err != nil {
-			return err
-		}
+		// spt, err := ffiwrapper.SealProofTypeFromSectorSize(sectorSize)
+		spt := spt(sectorSize)
+		
 
-		cfg := &ffiwrapper.Config{
-			SealProofType: spt,
-		}
+		// cfg := &ffiwrapper.Config{
+		// 	SealProofType: spt,
+		// }
 
 		if err := paramfetch.GetParams(lcli.ReqContext(c), build.ParametersJSON(), uint64(sectorSize)); err != nil {
 			return xerrors.Errorf("getting params: %w", err)
@@ -172,13 +172,15 @@ var sealBenchCmd = &cli.Command{
 			Root: sbdir,
 		}
 
-		sb, err := ffiwrapper.New(sbfs, cfg)
+		// sb, err := ffiwrapper.New(sbfs, spt)
+		sb, err := ffiwrapper.New(sbfs)
 		if err != nil {
 			return err
 		}
 
 
-		sealedSectors := getSectorsInfo(c.String("sectors-file"), sb.SealProofType())
+		// sealedSectors := getSectorsInfo(c.String("sectors-file"), sb.SealProofType())
+		sealedSectors := getSectorsInfo(c.String("sectors-file"), spt)
 
 		var challenge [32]byte
 		rand.Read(challenge[:])
@@ -253,98 +255,14 @@ func getSectorsInfo(filePath string, proofType abi.RegisteredSealProof) []saproo
 	return sealedSectors
 }
 
-type ParCfg struct {
-	PreCommit1 int
-	PreCommit2 int
-	Commit     int
+
+
+func spt(ssize abi.SectorSize) abi.RegisteredSealProof {
+	spt, err := miner.SealProofTypeFromSectorSize(ssize, build.NewestNetworkVersion)
+	if err != nil {
+		panic(err)
+	}
+
+	return spt
 }
 
-
-var proveCmd = &cli.Command{
-	Name:  "prove",
-	Usage: "Benchmark a proof computation",
-	Flags: []cli.Flag{
-		&cli.BoolFlag{
-			Name:  "no-gpu",
-			Usage: "disable gpu usage for the benchmark run",
-		},
-		&cli.StringFlag{
-			Name:  "miner-addr",
-			Usage: "pass miner address (only necessary if using existing sectorbuilder)",
-			Value: "t01000",
-		},
-	},
-	Action: func(c *cli.Context) error {
-		if c.Bool("no-gpu") {
-			err := os.Setenv("BELLMAN_NO_GPU", "1")
-			if err != nil {
-				return xerrors.Errorf("setting no-gpu flag: %w", err)
-			}
-		}
-
-		if !c.Args().Present() {
-			return xerrors.Errorf("Usage: lotus-bench prove [input.json]")
-		}
-
-		inb, err := ioutil.ReadFile(c.Args().First())
-		if err != nil {
-			return xerrors.Errorf("reading input file: %w", err)
-		}
-
-		var c2in Commit2In
-		if err := json.Unmarshal(inb, &c2in); err != nil {
-			return xerrors.Errorf("unmarshalling input file: %w", err)
-		}
-
-		if err := paramfetch.GetParams(lcli.ReqContext(c), build.ParametersJSON(), c2in.SectorSize); err != nil {
-			return xerrors.Errorf("getting params: %w", err)
-		}
-
-		maddr, err := address.NewFromString(c.String("miner-addr"))
-		if err != nil {
-			return err
-		}
-		mid, err := address.IDFromAddress(maddr)
-		if err != nil {
-			return err
-		}
-
-		spt, err := ffiwrapper.SealProofTypeFromSectorSize(abi.SectorSize(c2in.SectorSize))
-		if err != nil {
-			return err
-		}
-
-		cfg := &ffiwrapper.Config{
-			SealProofType: spt,
-		}
-
-		sb, err := ffiwrapper.New(nil, cfg)
-		if err != nil {
-			return err
-		}
-
-		start := time.Now()
-
-		proof, err := sb.SealCommit2(context.TODO(), abi.SectorID{Miner: abi.ActorID(mid), Number: abi.SectorNumber(c2in.SectorNum)}, c2in.Phase1Out)
-		if err != nil {
-			return err
-		}
-
-		sealCommit2 := time.Now()
-
-		fmt.Printf("proof: %x\n", proof)
-
-		fmt.Printf("----\nresults (v27) (%d)\n", c2in.SectorSize)
-		dur := sealCommit2.Sub(start)
-
-		fmt.Printf("seal: commit phase 2: %s (%s)\n", dur, bps(abi.SectorSize(c2in.SectorSize), dur))
-		return nil
-	},
-}
-
-func bps(data abi.SectorSize, d time.Duration) string {
-	bdata := new(big.Int).SetUint64(uint64(data))
-	bdata = bdata.Mul(bdata, big.NewInt(time.Second.Nanoseconds()))
-	bps := bdata.Div(bdata, big.NewInt(d.Nanoseconds()))
-	return types.SizeStr(types.BigInt{Int: bps}) + "/s"
-}
