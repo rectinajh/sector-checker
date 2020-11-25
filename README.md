@@ -1,4 +1,5 @@
-## sector-sanity-checker-v0.3.0
+## windowpost checker
+版本是lotus v1.2.1
 
 这个工具可以帮助检测window post阶段错误的filecash sector.
 核心逻辑:模拟生成windowpost,然后在验证windowpost。若果有异常，会弹出终端执行，如果没有异常，返回nil。
@@ -10,7 +11,7 @@ func (proofVerifier) VerifyWindowPoSt(ctx context.Context, info proof2.WindowPoS
 
 ## 下载
 
-http://git.pocyc.com/rectinajh/filecash_check.git
+https://github.com/rectinajh/sector-checker.git
 
 ## 使用
 ### 步骤一, 设置环境变量
@@ -59,7 +60,7 @@ This tools can help you check sector to avoid the window PoST fail.
 
 ## Download
 
-http://git.pocyc.com/rectinajh/filecash_check.git
+https://github.com/rectinajh/sector-checker.git
 
 ## Usage
 ### step 1, export the environment variable
